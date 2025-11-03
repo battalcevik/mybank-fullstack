@@ -21,7 +21,9 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          # IMPORTANT: since working-directory is "frontend",
+          # the path here must be just "package-lock.json"
+          cache-dependency-path: package-lock.json
 
       - name: Install deps
         run: npm ci
