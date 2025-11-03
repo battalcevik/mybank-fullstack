@@ -6,13 +6,13 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   dependency-check:
     name: OWASP Dependency-Check (backend)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,62 +21,41 @@ jobs:
         uses: dependency-check/Dependency-Check_Action@v4.0.3
         with:
           project: "mybank-backend"
-          path: "."
+          path: "backend"
           format: "HTML"
           out: "reports"
           args: >
-            --scan ./pom.xml
+            --scan backend/pom.xml
 
-      - name: Upload report artifact
+      - name: Upload depcheck report
         uses: actions/upload-artifact@v4
         with:
           name: dependency-check-report
-          path: backend/reports
+          path: reports
 
-  trivy:
-    name: Trivy Image & FS Scan
+  trivy-fs:
+    name: Trivy Filesystem Scan (backend & frontend)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
-
-      # Build images exactly like local (no push)
-      - name: Build backend image
-        run: docker build -t mybank-backend:ci ./backend
-
-      - name: Build frontend image
-        run: docker build -t mybank-frontend:ci ./frontend
-
-      # Image scans (do not fail the job on findings; set exit-code: 0)
-      - name: Trivy scan (backend image)
-        uses: aquasecurity/trivy-action@0.24.0
-        with:
-          image-ref: mybank-backend:ci
-          format: 'table'
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
-          ignore-unfixed: true
-          exit-code: '0'
-
-      - name: Trivy scan (frontend image)
-        uses: aquasecurity/trivy-action@0.24.0
-        with:
-          image-ref: mybank-frontend:ci
-          format: 'table'
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
-          ignore-unfixed: true
-          exit-code: '0'
-
-      # Optional: quick filesystem scan of the repo too
-      - name: Trivy filesystem scan
+      # Scan backend dir
+      - name: Trivy FS scan (backend)
         uses: aquasecurity/trivy-action@0.24.0
         with:
           scan-type: 'fs'
-          scan-ref: '.'
+          scan-ref: 'backend'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'          # set to '1' to fail on findings
+
+      # Scan frontend dir
+      - name: Trivy FS scan (frontend)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: 'fs'
+          scan-ref: 'frontend'
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'

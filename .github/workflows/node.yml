@@ -9,9 +9,7 @@ on:
 jobs:
   build-frontend:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,15 +19,17 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          # IMPORTANT: since working-directory is "frontend",
-          # the path here must be just "package-lock.json"
-          cache-dependency-path: package-lock.json
+          # IMPORTANT: because we run from repo root,
+          # give the full relative path to the lockfile:
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install deps
         run: npm ci
+        working-directory: frontend
 
       - name: Build
         run: npm run build
+        working-directory: frontend
 
       - name: Upload dist
         uses: actions/upload-artifact@v4

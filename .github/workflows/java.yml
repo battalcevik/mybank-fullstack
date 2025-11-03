@@ -9,9 +9,7 @@ on:
 jobs:
   build-test-backend:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,11 +21,13 @@ jobs:
           java-version: '21'
           cache: maven
 
-      - name: Build + unit tests
-        run: mvn -B clean verify
+      - name: Build + tests
+        working-directory: backend
+        run: mvn -B -ntp clean verify
 
-      - name: Package Spring Boot jar
-        run: mvn -B -DskipTests spring-boot:repackage
+      - name: Package Boot jar
+        working-directory: backend
+        run: mvn -B -ntp -DskipTests spring-boot:repackage
 
       - name: Upload backend artifact
         uses: actions/upload-artifact@v4

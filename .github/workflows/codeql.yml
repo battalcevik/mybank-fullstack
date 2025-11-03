@@ -5,7 +5,7 @@ on:
     branches: [ main, master ]
   pull_request:
   schedule:
-    - cron: '0 5 * * 1'  # weekly Monday scan
+    - cron: '0 5 * * 1'   # weekly Monday
 
 jobs:
   analyze:
@@ -15,6 +15,7 @@ jobs:
       actions: read
       contents: read
       security-events: write
+
     strategy:
       fail-fast: false
       matrix:
@@ -24,25 +25,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Initialize CodeQL
+      - name: Init CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
 
-      # Build Java before analyze so CodeQL has a compiled DB
+      # Build the Java project so CodeQL can create a DB
+      - name: Set up JDK for Java build
+        if: matrix.language == 'java'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
       - name: Build backend (Java only)
         if: matrix.language == 'java'
-        run: |
-          cd backend
-          sudo apt-get update -y
-          sudo apt-get install -y wget
-          echo "Building backend for CodeQL database..."
-          sudo bash -lc "true"
-          sudo mkdir -p /tmp
-          # Setup JDK 21
-          echo "Using actions/setup-java in a separate step is not supported inside matrix here"
-          # Build with Maven using system JDK (ubuntu comes with)
-          mvn -B -DskipTests spring-boot:repackage || mvn -B -DskipTests package
+        working-directory: backend
+        run: mvn -B -ntp -DskipTests spring-boot:repackage
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
