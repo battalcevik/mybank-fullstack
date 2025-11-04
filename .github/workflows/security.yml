@@ -2,32 +2,47 @@ name: Security Scans
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, develop ]
   pull_request:
+    branches: [ main, develop ]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  dependency-check:
-    name: OWASP Dependency-Check (backend)
+  dependency-check-docker:
+    name: OWASP Dependency-Check (Docker)
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run Dependency-Check (backend)
-        uses: dependency-check/Dependency-Check_Action@v4.0.3
+      # Cache the NVD data used by Dependency-Check to speed up subsequent runs
+      - name: Cache Dependency-Check data
+        uses: actions/cache@v4
         with:
-          project: "mybank-backend"
-          path: "backend"
-          format: "HTML"
-          out: "reports"
-          args: >
+          path: ~/.dc-data
+          key: dc-data-${{ runner.os }}-${{ hashFiles('backend/pom.xml') }}
+          restore-keys: |
+            dc-data-${{ runner.os }}-
+
+      - name: Run Dependency-Check (Docker)
+        run: |
+          mkdir -p reports
+          # Mount repo as /src and the cached NVD DB into the container
+          docker run --rm \
+            -v "${{ github.workspace }}:/src" \
+            -v "$HOME/.dc-data:/usr/share/dependency-check/data" \
+            -w /src \
+            owasp/dependency-check:latest \
+            --project "mybank-backend" \
+            --format "HTML" \
+            --out /src/reports \
             --scan backend/pom.xml
 
-      - name: Upload depcheck report
+      - name: Upload Dependency-Check report
         uses: actions/upload-artifact@v4
         with:
           name: dependency-check-report
@@ -36,24 +51,27 @@ jobs:
   trivy-fs:
     name: Trivy Filesystem Scan (backend & frontend)
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Backend scan
       - name: Trivy FS scan (backend)
         uses: aquasecurity/trivy-action@0.24.0
         with:
-          scan-type: 'fs'
-          scan-ref: 'backend'
-          format: 'table'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '0'  # set to '1' to fail on findings
+          scan-type: fs
+          scan-ref: backend
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: '0'  # set to '1' to fail the job on findings
 
+      # Frontend scan
       - name: Trivy FS scan (frontend)
         uses: aquasecurity/trivy-action@0.24.0
         with:
-          scan-type: 'fs'
-          scan-ref: 'frontend'
-          format: 'table'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '0'
+          scan-type: fs
+          scan-ref: frontend
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: '0'  # set to '1' to fail the job on findings

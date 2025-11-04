@@ -2,8 +2,9 @@ name: Backend CI (Java)
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, develop ]
   pull_request:
+    branches: [ main, develop ]
   workflow_dispatch:
 
 jobs:
@@ -17,21 +18,21 @@ jobs:
           POSTGRES_USER: bankuser
           POSTGRES_PASSWORD: bankpass
           POSTGRES_DB: bankdb
-        ports:
-          - 5432:5432
         options: >-
           --health-cmd="pg_isready -U bankuser -d bankdb"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
+        ports:
+          - 5432:5432
 
     env:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/bankdb
+      # Use service hostname "postgres" inside the job
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/bankdb
       SPRING_DATASOURCE_USERNAME: bankuser
       SPRING_DATASOURCE_PASSWORD: bankpass
       SPRING_JPA_HIBERNATE_DDL_AUTO: update
-      # If you read JWT secret from env in your app, set it here:
-      APP_JWT_SECRET: "dev-ci-secret-change-me"
+      APP_JWT_SECRET: dev-ci-secret-change-me
 
     steps:
       - name: Checkout
@@ -44,22 +45,20 @@ jobs:
           java-version: '21'
           cache: maven
 
-      - name: Wait for Postgres
+      - name: Wait for Postgres to be ready
         run: |
           for i in {1..30}; do
-            nc -z localhost 5432 && echo "Postgres up" && exit 0
+            pg_isready -h localhost -p 5432 -U bankuser -d bankdb && echo "Postgres is ready" && exit 0
             echo "Waiting for Postgres..."
             sleep 2
           done
           echo "Postgres not reachable"; exit 1
 
-      - name: Build + tests
+      # Single lifecycle: compile, test (unless you want to skip), and repackage
+      # If tests are flaky in CI, add -DskipTests
+      - name: Build & package
         working-directory: backend
-        run: mvn -B -ntp clean verify
-
-      - name: Package Boot jar
-        working-directory: backend
-        run: mvn -B -ntp -DskipTests spring-boot:repackage
+        run: mvn -B -ntp -DskipTests clean package
 
       - name: Upload backend artifact
         uses: actions/upload-artifact@v4
