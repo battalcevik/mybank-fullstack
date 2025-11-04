@@ -12,93 +12,42 @@ permissions:
   security-events: write
 
 jobs:
-  dependency-check:
-    name: OWASP Dependency-Check (Docker, cached with safe fallback)
+  dependency-check-maven:
+    name: OWASP Dependency-Check (Maven plugin)
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare cache & reports dirs
-        run: mkdir -p .dc-data reports
-
-      - name: Restore Dependency-Check cache (NVD DB)
-        uses: actions/cache@v4
+      - name: Set up JDK 21 (with Maven cache)
+        uses: actions/setup-java@v4
         with:
-          path: .dc-data
-          key: dc-nvd-${{ runner.os }}-${{ hashFiles('backend/pom.xml') }}
-          restore-keys: |
-            dc-nvd-${{ runner.os }}-
+          distribution: temurin
+          java-version: '21'
+          cache: maven
 
-      - name: Clean stale lock files
+      # Runs the OWASP Dependency-Check Maven plugin against the backend project.
+      # If you add an NVD API key as a repo secret, it will be used automatically.
+      - name: Run Dependency-Check (aggregate)
+        working-directory: backend
+        env:
+          # Optional: add this secret in GitHub → Repo → Settings → Secrets and variables → Actions
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
-          find .dc-data -type f \( -name "*.lck" -o -name "*.lock" -o -name "*.trace.db" \) -print -delete || true
-
-      - name: Run Dependency-Check (Docker) with conditional fallback
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          has_cache_db() {
-            # H2 file created by Dependency-Check; name can vary but ends with .mv.db
-            compgen -G ".dc-data/*.mv.db" > /dev/null || compgen -G ".dc-data/**/.mv.db" > /dev/null
-          }
-
-          run_dc_update() {
-            docker run --rm \
-              -v "$PWD/backend:/src" \
-              -v "$PWD/.dc-data:/usr/share/dependency-check/data" \
-              -v "$PWD/reports:/report" \
-              owasp/dependency-check:latest \
-                --project "agile-bank-backend" \
-                --scan /src \
-                --format "HTML" --format "SARIF" \
-                --out /report \
-                --enableExperimental \
-                --failOnCVSS 11
-          }
-
-          run_dc_noupdate() {
-            docker run --rm \
-              -v "$PWD/backend:/src" \
-              -v "$PWD/.dc-data:/usr/share/dependency-check/data" \
-              -v "$PWD/reports:/report" \
-              owasp/dependency-check:latest \
-                --project "agile-bank-backend" \
-                --scan /src \
-                --format "HTML" --format "SARIF" \
-                --out /report \
-                --enableExperimental \
-                --noupdate \
-                --failOnCVSS 11
-          }
-
-          echo "==> Running Dependency-Check with update (first attempt)"
-          if run_dc_update; then
-            echo "Dependency-Check completed with update."
-          else
-            echo "==> Update attempt failed."
-            if has_cache_db; then
-              echo "==> Cached DB detected; retrying with --noupdate"
-              run_dc_noupdate
-            else
-              echo "No cached DB available; cannot use --noupdate on first run."
-              echo "Rerun the job (network/liveness hiccup) or add an NVD API key to improve reliability."
-              exit 1
-            fi
-          fi
+          mvn -B -ntp \
+            org.owasp:dependency-check-maven:9.2.0:aggregate \
+            -Dformat=HTML \
+            -DoutputDirectory=target/depcheck \
+            -Dnvd.api.key="${NVD_API_KEY}" \
+            -DfailOnError=false \
+            -DfailBuildOnCVSS=11
 
       - name: Upload Dependency-Check HTML report
         uses: actions/upload-artifact@v4
         with:
           name: dependency-check-report
-          path: reports/dependency-check-report.html
-
-      - name: Upload SARIF to Code Scanning
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: reports/dependency-check-report.sarif
+          path: backend/target/depcheck/dependency-check-report.html
 
   trivy-fs:
     name: Trivy Filesystem Scan (backend & frontend)
@@ -108,6 +57,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Backend scan
       - name: Trivy FS scan (backend)
         uses: aquasecurity/trivy-action@0.24.0
         with:
@@ -117,6 +67,7 @@ jobs:
           severity: CRITICAL,HIGH
           exit-code: '0'  # set to '1' to fail the job on findings
 
+      # Frontend scan
       - name: Trivy FS scan (frontend)
         uses: aquasecurity/trivy-action@0.24.0
         with:
