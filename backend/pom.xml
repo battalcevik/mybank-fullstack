@@ -102,10 +102,11 @@
 
   <build>
     <plugins>
-      <!-- Ensure a runnable Spring Boot jar with Main-Class in manifest -->
+      <!-- Spring Boot plugin: pin to Boot version and bind repackage -->
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
+        <version>${spring.boot.version}</version>
         <executions>
           <execution>
             <goals>
@@ -125,7 +126,7 @@
         </configuration>
       </plugin>
 
-      <!-- JUnit 5 runner (Boot adds it, but pin a modern version explicitly) -->
+      <!-- JUnit 5 runner -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>

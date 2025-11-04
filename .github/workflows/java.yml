@@ -55,11 +55,7 @@ jobs:
 
       - name: Build + tests
         working-directory: backend
-        run: mvn -B -ntp clean verify
-
-      - name: Package Boot jar
-        working-directory: backend
-        run: mvn -B -ntp -DskipTests spring-boot:repackage
+        run: mvn -B -ntp clean package
 
       - name: Upload backend artifact
         uses: actions/upload-artifact@v4
