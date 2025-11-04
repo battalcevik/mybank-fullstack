@@ -9,44 +9,45 @@ on:
 
 permissions:
   contents: read
+  security-events: write
 
 jobs:
-  dependency-check-docker:
-    name: OWASP Dependency-Check (Docker)
+  dependency-check-maven:
+    name: OWASP Dependency-Check (Maven plugin)
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Cache the NVD data used by Dependency-Check to speed up subsequent runs
-      - name: Cache Dependency-Check data
-        uses: actions/cache@v4
+      - name: Set up JDK 21 (with Maven cache)
+        uses: actions/setup-java@v4
         with:
-          path: ~/.dc-data
-          key: dc-data-${{ runner.os }}-${{ hashFiles('backend/pom.xml') }}
-          restore-keys: |
-            dc-data-${{ runner.os }}-
+          distribution: temurin
+          java-version: '21'
+          cache: maven
 
-      - name: Run Dependency-Check (Docker)
+      # Runs the OWASP Dependency-Check Maven plugin against the backend project.
+      # If you add an NVD API key as a repo secret, it will be used automatically.
+      - name: Run Dependency-Check (aggregate)
+        working-directory: backend
+        env:
+          # Optional: add this secret in GitHub → Repo → Settings → Secrets and variables → Actions
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
-          mkdir -p reports
-          # Mount repo as /src and the cached NVD DB into the container
-          docker run --rm \
-            -v "${{ github.workspace }}:/src" \
-            -v "$HOME/.dc-data:/usr/share/dependency-check/data" \
-            -w /src \
-            owasp/dependency-check:latest \
-            --project "mybank-backend" \
-            --format "HTML" \
-            --out /src/reports \
-            --scan backend/pom.xml
+          mvn -B -ntp \
+            org.owasp:dependency-check-maven:9.2.0:aggregate \
+            -Dformat=HTML \
+            -DoutputDirectory=target/depcheck \
+            -Dnvd.api.key="${NVD_API_KEY}" \
+            -DfailOnError=false \
+            -DfailBuildOnCVSS=11
 
-      - name: Upload Dependency-Check report
+      - name: Upload Dependency-Check HTML report
         uses: actions/upload-artifact@v4
         with:
           name: dependency-check-report
-          path: reports
+          path: backend/target/depcheck/dependency-check-report.html
 
   trivy-fs:
     name: Trivy Filesystem Scan (backend & frontend)

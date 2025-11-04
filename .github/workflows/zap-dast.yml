@@ -1,106 +1,90 @@
 name: ZAP DAST (Baseline)
 
 on:
-  pull_request:
-    branches: [ main, develop ]
   push:
+    branches: [ main, develop ]
+  pull_request:
     branches: [ main, develop ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   zap-baseline:
+    name: ZAP Baseline (frontend & backend)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Docker Compose
-        run: docker compose version
-
-      - name: Build & start stack
+      - name: Start stack (Docker Compose)
         run: |
-          docker compose down -v
+          docker compose down -v || true
           docker compose up --build -d
-          docker compose ps
 
-      - name: Wait for backend (http://localhost:8080/actuator/health)
+      - name: Wait for backend (8080/health)
         run: |
           for i in {1..60}; do
             if curl -fsS http://localhost:8080/actuator/health >/dev/null; then
-              echo "Backend is up"
-              exit 0
+              echo "Backend is up"; exit 0
             fi
-            echo "Waiting for backend..."
-            sleep 2
+            echo "Waiting for backend... ($i/60)"; sleep 2
           done
-          echo "Backend did not become ready in time"; exit 1
+          echo "Backend did not become healthy in time"; docker compose logs --no-color > compose-logs.txt; exit 1
 
-      - name: Wait for frontend (http://localhost:5173)
+      - name: Wait for frontend (5173)
         run: |
           for i in {1..60}; do
             if curl -fsS http://localhost:5173 >/dev/null; then
-              echo "Frontend is up"
-              exit 0
+              echo "Frontend is up"; exit 0
             fi
-            echo "Waiting for frontend..."
-            sleep 2
+            echo "Waiting for frontend... ($i/60)"; sleep 2
           done
-          echo "Frontend did not become ready in time"; exit 1
+          echo "Frontend did not become available in time"; docker compose logs --no-color > compose-logs.txt; exit 1
 
-      # ---------- Frontend ZAP Baseline ----------
-      - name: ZAP Baseline Scan (Frontend)
+      # --------- ZAP BASELINE (FRONTEND) ---------
+      - name: ZAP Baseline (frontend)
         uses: zaproxy/action-baseline@v0.13.0
         with:
           target: 'http://localhost:5173'
-          docker_name: 'ghcr.io/zaproxy/zaproxy:stable'
-          rules_file_name: ''          # optional: add a zap_rules.conf if you want to ignore items
+          # Keep baseline safe/quick in CI
           cmd_options: >-
-            -m 3
-            -a
-            -T 5
-          allow_issue_writing: false
-          fail_action: false           # keep CI green for now; set to true to fail on WARN/FAIL
+            -m 3 -a -T 5
+            -J zap-frontend.json
+            -w zap-frontend.md
+            -r zap-frontend.html
+          # Do not fail the PR on baseline warnings initially
+          fail_action: false
+          # IMPORTANT: use a hyphenated artifact name (underscores can 400)
+          artifact_name: 'zap-frontend'
 
-      - name: Collect ZAP Frontend Reports
-        if: always()
-        run: |
-          mkdir -p zap-reports
-          # The action writes into the repo workspace by default:
-          # report_html.html, report_md.md, report_json.json
-          mv report_html.html zap-reports/zap-frontend.html || true
-          mv report_md.md     zap-reports/zap-frontend.md   || true
-          mv report_json.json zap-reports/zap-frontend.json || true
-
-      # ---------- Backend ZAP Baseline ----------
-      - name: ZAP Baseline Scan (Backend/API)
+      # --------- ZAP BASELINE (BACKEND) ---------
+      - name: ZAP Baseline (backend)
         uses: zaproxy/action-baseline@v0.13.0
         with:
           target: 'http://localhost:8080'
-          docker_name: 'ghcr.io/zaproxy/zaproxy:stable'
-          rules_file_name: ''
           cmd_options: >-
-            -m 3
-            -a
-            -T 5
-          allow_issue_writing: false
+            -m 3 -a -T 5
+            -J zap-backend.json
+            -w zap-backend.md
+            -r zap-backend.html
           fail_action: false
+          artifact_name: 'zap-backend'
 
-      - name: Collect ZAP Backend Reports
+      - name: Dump compose logs (for debugging)
         if: always()
-        run: |
-          # subsequent baseline run overwrites the same filenames; move them again
-          mv report_html.html zap-reports/zap-backend.html || true
-          mv report_md.md     zap-reports/zap-backend.md   || true
-          mv report_json.json zap-reports/zap-backend.json || true
+        run: docker compose logs --no-color > compose-logs.txt || true
 
-      - name: Upload ZAP reports
+      - name: Upload compose logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: zap-dast-reports
-          path: zap-reports
+          name: compose-logs
+          path: compose-logs.txt
 
-      - name: Tear down stack
+      - name: Tear down
         if: always()
         run: docker compose down -v
