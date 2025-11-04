@@ -9,10 +9,11 @@ on:
 
 permissions:
   contents: read
+  security-events: write
 
 jobs:
   dependency-check:
-    name: OWASP Dependency-Check (no key, cached, auto-heal)
+    name: OWASP Dependency-Check (Docker, cached with safe fallback)
     runs-on: ubuntu-latest
 
     steps:
@@ -22,7 +23,6 @@ jobs:
       - name: Prepare cache & reports dirs
         run: mkdir -p .dc-data reports
 
-      # Cache the NVD database so subsequent runs are much faster
       - name: Restore Dependency-Check cache (NVD DB)
         uses: actions/cache@v4
         with:
@@ -31,17 +31,21 @@ jobs:
           restore-keys: |
             dc-nvd-${{ runner.os }}-
 
-      # Clean any stale H2 lock files that can cause "exclusive lock" errors
       - name: Clean stale lock files
         run: |
           find .dc-data -type f \( -name "*.lck" -o -name "*.lock" -o -name "*.trace.db" \) -print -delete || true
 
-      # Run Dependency-Check with weekly freshness; if update fails -> retry with --noupdate
-      - name: Run Dependency-Check (Docker) with fallback
+      - name: Run Dependency-Check (Docker) with conditional fallback
+        shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
-          run_dc () {
+          has_cache_db() {
+            # H2 file created by Dependency-Check; name can vary but ends with .mv.db
+            compgen -G ".dc-data/*.mv.db" > /dev/null || compgen -G ".dc-data/**/.mv.db" > /dev/null
+          }
+
+          run_dc_update() {
             docker run --rm \
               -v "$PWD/backend:/src" \
               -v "$PWD/.dc-data:/usr/share/dependency-check/data" \
@@ -49,18 +53,13 @@ jobs:
               owasp/dependency-check:latest \
                 --project "agile-bank-backend" \
                 --scan /src \
-                --format "HTML" \
+                --format "HTML" --format "SARIF" \
                 --out /report \
                 --enableExperimental \
-                --cveValidForHours 168 \
                 --failOnCVSS 11
           }
 
-          echo "==> Attempting Dependency-Check with update (weekly freshness)"
-          if run_dc; then
-            echo "Dependency-Check completed with update."
-          else
-            echo "==> Update failed; retrying once with --noupdate using cached DB"
+          run_dc_noupdate() {
             docker run --rm \
               -v "$PWD/backend:/src" \
               -v "$PWD/.dc-data:/usr/share/dependency-check/data" \
@@ -68,11 +67,26 @@ jobs:
               owasp/dependency-check:latest \
                 --project "agile-bank-backend" \
                 --scan /src \
-                --format "HTML" \
+                --format "HTML" --format "SARIF" \
                 --out /report \
                 --enableExperimental \
                 --noupdate \
                 --failOnCVSS 11
+          }
+
+          echo "==> Running Dependency-Check with update (first attempt)"
+          if run_dc_update; then
+            echo "Dependency-Check completed with update."
+          else
+            echo "==> Update attempt failed."
+            if has_cache_db; then
+              echo "==> Cached DB detected; retrying with --noupdate"
+              run_dc_noupdate
+            else
+              echo "No cached DB available; cannot use --noupdate on first run."
+              echo "Rerun the job (network/liveness hiccup) or add an NVD API key to improve reliability."
+              exit 1
+            fi
           fi
 
       - name: Upload Dependency-Check HTML report
@@ -80,6 +94,11 @@ jobs:
         with:
           name: dependency-check-report
           path: reports/dependency-check-report.html
+
+      - name: Upload SARIF to Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/dependency-check-report.sarif
 
   trivy-fs:
     name: Trivy Filesystem Scan (backend & frontend)
@@ -89,7 +108,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Backend scan
       - name: Trivy FS scan (backend)
         uses: aquasecurity/trivy-action@0.24.0
         with:
@@ -99,7 +117,6 @@ jobs:
           severity: CRITICAL,HIGH
           exit-code: '0'  # set to '1' to fail the job on findings
 
-      # Frontend scan
       - name: Trivy FS scan (frontend)
         uses: aquasecurity/trivy-action@0.24.0
         with:
