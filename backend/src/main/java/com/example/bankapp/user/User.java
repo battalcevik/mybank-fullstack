@@ -5,6 +5,9 @@ import jakarta.persistence.*;
 import jakarta.validation.constraints.*;
 import java.time.Instant;
 import java.util.*;
+import jakarta.persistence.Convert;
+import com.example.bankapp.security.EncryptedStringConverter;
+
 
 @Entity
 @Table(name = "users", uniqueConstraints = @UniqueConstraint(columnNames = "email"))
@@ -25,12 +28,15 @@ public class User {
     private String lastName;
 
     @NotBlank
+    @Convert(converter = EncryptedStringConverter.class)
     private String address;
 
     @NotBlank
+    @Convert(converter = EncryptedStringConverter.class)
     private String phone;
 
     @Pattern(regexp = "\\d{7}", message = "SSN must be exactly 7 digits")
+    @Convert(converter = EncryptedStringConverter.class)
     private String ssn7;
 
     private String roles = "USER";
