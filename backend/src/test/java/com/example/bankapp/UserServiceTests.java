@@ -23,7 +23,7 @@ class UserServiceTests {
     @Test
     void register_encodesPassword_and_createsUser() {
         User u = new User();
-        u.setEmail("test1@bank.local");
+        u.setEmail("test133@bank.local");
         u.setFirstName("Test");
         u.setLastName("User");
         u.setAddress("123 Main");

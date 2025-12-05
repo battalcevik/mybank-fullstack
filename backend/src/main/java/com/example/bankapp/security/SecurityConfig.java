@@ -42,10 +42,16 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+
+        // We use stateless JWT authentication (no cookies or server-side sessions).
+        // CSRF attacks rely on cookies automatically sent by the browser.
+        // Because our API does not use cookie-based auth, it is safe and recommended
+        // to disable CSRF protection for these REST endpoints.
+        http.csrf(csrf -> csrf.disable());
+
         http
-                .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
-                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.ALWAYS))
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         // keep auth endpoints and health completely open
                         .requestMatchers("/api/auth/**", "/actuator/health").permitAll()
@@ -58,7 +64,9 @@ public class SecurityConfig {
     }
 
     @Bean
-    public PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(); }
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
 
     @Bean
     public AuthenticationProvider authenticationProvider(UserDetailsService uds) {
@@ -69,14 +77,17 @@ public class SecurityConfig {
     }
 
     @Bean
-    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration config)
+            throws Exception {
         return config.getAuthenticationManager();
     }
 
     @Bean
     public CorsFilter corsFilter() {
         List<String> allowedOrigins = Arrays.stream(allowedOriginsCsv.split(","))
-                .map(String::trim).toList();
+                .map(String::trim)
+                .toList();
+
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         CorsConfiguration cfg = new CorsConfiguration();
         cfg.setAllowCredentials(true);
@@ -84,6 +95,7 @@ public class SecurityConfig {
         cfg.addAllowedHeader(CorsConfiguration.ALL);
         cfg.addAllowedMethod(CorsConfiguration.ALL);
         source.registerCorsConfiguration("/**", cfg);
+
         return new CorsFilter(source);
     }
 }
